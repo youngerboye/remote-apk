@@ -4,6 +4,8 @@ import android.net.LocalServerSocket;
 import android.net.LocalSocket;
 import android.net.LocalSocketAddress;
 
+import com.castles.remote.RemoteService;
+
 import java.io.Closeable;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -120,13 +122,19 @@ public final class DesktopConnection implements Closeable {
         return connection;
     }
 
+    @Override
     public void close() throws IOException {
-        videoSocket.shutdownInput();
-        videoSocket.shutdownOutput();
-        videoSocket.close();
-        controlSocket.shutdownInput();
-        controlSocket.shutdownOutput();
-        controlSocket.close();
+        try {
+            videoSocket.shutdownInput();
+            videoSocket.shutdownOutput();
+            videoSocket.close();
+            controlSocket.shutdownInput();
+            controlSocket.shutdownOutput();
+            controlSocket.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+            RemoteService.setIsStarted(false);
+        }
     }
 
     @SuppressWarnings("checkstyle:MagicNumber")

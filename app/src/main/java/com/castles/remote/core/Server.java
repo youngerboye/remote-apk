@@ -18,6 +18,8 @@ import android.net.wifi.WifiManager;
 import android.os.Handler;
 import android.os.Message;
 
+import com.castles.remote.RemoteService;
+
 public final class Server {
 
     private static Context serviceContext;
@@ -60,6 +62,9 @@ public final class Server {
                 // this is expected on close
                 Ln.d("Screen streaming stopped");
             }
+        }catch (Exception e){
+            e.printStackTrace();
+            RemoteService.setIsStarted(false);
         }
         Ln.d("Server castleRemote exit!!!!!");
         return controller;
@@ -222,7 +227,9 @@ public final class Server {
      * @param context
      * @param handler
      */
-    public static void start(Context context, Handler handler) {
+    public static void start(Context context, Handler handler,String agentIp,
+                             String agentPort,String agentSerialNumber,
+                             String manufacture,String deviceModel) {
         serviceContext = context;
         serviceHandler = handler;
         NetworkInfo.State state;
@@ -241,14 +248,10 @@ public final class Server {
         try {
             //尝试建立一个socket连接
             Socket socket = DesktopConnection.connectServer();
-            if (socket == null) {
-                Message message = serviceHandler.obtainMessage();
-                message.obj = 2;
-                message.what = 2;
-                serviceHandler.sendMessage(message);
-            }
+
             InputStream inputStream = socket.getInputStream();
             OutputStream outputStream = socket.getOutputStream();
+
             String deviceName = Device.getDeviceName();
             String deviceSerial = Device.getDeviceSerial();
 
@@ -267,6 +270,7 @@ public final class Server {
             byte[] deviceSerialBytes = deviceSerial.getBytes(StandardCharsets.UTF_8);
             len = StringUtils.getUtf8TruncationIndex(deviceSerialBytes, 16);
             System.arraycopy(deviceSerialBytes, 0, buffer, 6 + 32, len);
+
             IO.writeStreamFully(outputStream, buffer, 0, 6 + 32 + 16);
 
             byte[] idBuffer = new byte[4];
@@ -295,7 +299,7 @@ public final class Server {
                     new Thread(new Runnable() {
                         public void run() {
                             try {
-                                startConnect(serviceContext, "0", "8000000", "false", "-", "true", "true");
+                                startConnect(serviceContext, "2", "1500000", "false", "-", "true", "true");
                             } catch (Exception e) {
                                 Ln.d("Could not start core Server:" + e.getMessage());
                                 e.printStackTrace();
@@ -313,6 +317,7 @@ public final class Server {
             message.obj = 3;
             message.what = 2;
             serviceHandler.sendMessage(message);
+            RemoteService.setIsStarted(false);
         }
     }
 }
