@@ -2,13 +2,12 @@ package com.castles.remote.core;
 
 import android.graphics.Rect;
 
-import java.io.EOFException;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
@@ -17,32 +16,36 @@ import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Handler;
 import android.os.Message;
+import android.util.Log;
 
 import com.castles.remote.RemoteService;
 
+/**
+ * @author Jackson
+ */
 public final class Server {
 
     private static Context serviceContext;
     private static Handler serviceHandler;
 
     private Server() {
-        // not instantiable
     }
 
     /**
      * 3.类似于scrcpy第三步进入scrcpy方法
+     *
      * @param options
      * @param host
      * @return
      * @throws IOException
      */
-    private static Controller castleRemote(Options options, String host) throws IOException {
+    private static Controller castleRemote(int port, Options options, String ip,String host, byte[] buffer) throws IOException {
         //初始化设备管理器
         final Device device = new Device(options);
         Controller controller = null;
         //根据tunnelForward的值来创建连接
         boolean tunnelForward = options.isTunnelForward();
-        try (DesktopConnection connection = DesktopConnection.open(device, tunnelForward, host)) {
+        try (DesktopConnection connection = DesktopConnection.open(port, device, tunnelForward, ip, host, buffer)) {
             ScreenEncoder screenEncoder = new ScreenEncoder(options.getSendFrameMeta(), options.getBitRate());
 
             // 根据Control参数确认是否能对设备进行操作，如按键、鼠标等事件的响应
@@ -53,7 +56,6 @@ public final class Server {
                 startController(controller);
                 startDeviceMessageSender(controller.getSender());
             }
-
             try {
                 // synchronous
                 //录屏和编码
@@ -62,7 +64,7 @@ public final class Server {
                 // this is expected on close
                 Ln.d("Screen streaming stopped");
             }
-        }catch (Exception e){
+        } catch (Exception e) {
             e.printStackTrace();
             RemoteService.setIsStarted(false);
         }
@@ -71,42 +73,35 @@ public final class Server {
     }
 
     private static void startController(final Controller controller) {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    controller.control();
-                } catch (IOException e) {
-                    // this is expected on close
-                    Ln.d("Controller stopped");
-                }
+        new Thread(() -> {
+            try {
+                controller.control();
+            } catch (IOException e) {
+                // this is expected on close
+                Ln.d("Controller stopped");
             }
         }).start();
     }
 
     private static void startDeviceMessageSender(final DeviceMessageSender sender) {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    sender.loop();
-                } catch (IOException | InterruptedException e) {
-                    // this is expected on close
-                    Ln.d("Device message sender stopped");
-                }
+        new Thread(() -> {
+            try {
+                sender.loop();
+            } catch (IOException | InterruptedException e) {
+                // this is expected on close
+                Ln.d("Device message sender stopped");
             }
         }).start();
     }
 
     @SuppressWarnings("checkstyle:MagicNumber")
     private static Options createOptions(String... args) {
-        if (args.length != 6) {
-            throw new IllegalArgumentException("Expecting 6 parameters");
+        if (args.length != 8) {
+            throw new IllegalArgumentException("Expecting 7 parameters");
         }
-
         Options options = new Options();
-
-        int maxSize = Integer.parseInt(args[0]) & ~7; // multiple of 8
+        // multiple of 8
+        int maxSize = Integer.parseInt(args[0]) & ~7;
         options.setMaxSize(maxSize);
         Ln.d("createOptions maxSize:" + maxSize);
 
@@ -149,15 +144,6 @@ public final class Server {
         int y = Integer.parseInt(tokens[3]);
         return new Rect(x, y, x + width, y + height);
     }
-/*
-    private static void unlinkSelf() {
-        try {
-            new File(SERVER_PATH).delete();
-        } catch (Exception e) {
-            Ln.e("Could not unlink server", e);
-        }
-    }
-*/
 
     public static String int2ip(int ipInt) {
         StringBuilder sb = new StringBuilder();
@@ -170,21 +156,12 @@ public final class Server {
 
     /**
      * 类似于scrcpy的main方法
+     *
      * @param context
-     * @param args
      * @throws Exception
      */
-    public static void startConnect(Context context, String... args) throws Exception {
-//        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
-//            @Override
-//            public void uncaughtException(Thread t, Throwable e) {
-//                Ln.e("Exception on thread " + t, e);
-//            }
-//        });
+    public static void startConnect(Context context, byte[] buffer, String... args) throws Exception {
 
-//        unlinkSelf();
-
-        boolean started = false;
         NetworkInfo.State state;
         ConnectivityManager connectivityManager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
 
@@ -196,40 +173,39 @@ public final class Server {
                 Ln.d("WIFI CONNECTED!!!");
             }
             Controller controller = null;
-            if (!started && (state == NetworkInfo.State.CONNECTED)) {
+            if (state == NetworkInfo.State.CONNECTED) {
                 WifiManager wifiManager = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
                 WifiInfo wifiInfo = wifiManager.getConnectionInfo();
                 int i = wifiInfo.getIpAddress();
                 String ip = int2ip(i);
                 Ln.d(" ip:" + ip);
+                int port = Integer.parseInt(args[6]);
+                String host = args[7];
                 //对尺寸，码率，裁剪等参数进行解析，初始化options对象
                 Options options = createOptions(args);
                 try {
-                    controller = castleRemote(options, ip);
+                    controller = castleRemote(port, options, ip,host, buffer);
                 } catch (Exception e) {
                     Ln.e("castleRemote start", e);
                 }
-                started = true;
             }
 
             if (controller != null) {
                 controller.stop();
-                controller = null;
             }
-            started = false;
-
             Thread.sleep(1000);
         }
     }
 
     /**
      * 1.点击start按钮
+     *
      * @param context
      * @param handler
      */
-    public static void start(Context context, Handler handler,String agentIp,
-                             String agentPort,String agentSerialNumber,
-                             String manufacture,String deviceModel) {
+    public static void start(Context context, Handler handler, String agentIp,
+                             String agentPort, String agentSerialNumber,
+                             String manufacture, String deviceModel) {
         serviceContext = context;
         serviceHandler = handler;
         NetworkInfo.State state;
@@ -247,44 +223,35 @@ public final class Server {
 
         try {
             //尝试建立一个socket连接
-            Socket socket = DesktopConnection.connectServer();
+            Socket socket = DesktopConnection.connect(agentIp, Integer.parseInt(agentPort));
 
             InputStream inputStream = socket.getInputStream();
             OutputStream outputStream = socket.getOutputStream();
 
-            String deviceName = Device.getDeviceName();
-            String deviceSerial = Device.getDeviceSerial();
-
-            byte[] buffer = new byte[6 + 32 + 16];
+            byte[] buffer = new byte[2 + 1 + 3 + 1 + 4 + 1 + 3];
             buffer[0] = 0;
             buffer[1] = 0;
-            buffer[2] = 0;
-            buffer[3] = 0;
-            buffer[4] = 0;
-            buffer[5] = 0;
 
-            byte[] deviceNameBytes = deviceName.getBytes(StandardCharsets.UTF_8);
-            int len = StringUtils.getUtf8TruncationIndex(deviceNameBytes, 32);
-            System.arraycopy(deviceNameBytes, 0, buffer, 6, len);
+            byte[] agentSerialNumberBytes = agentSerialNumber.getBytes(StandardCharsets.US_ASCII);
+            int len = StringUtils.getUtf8TruncationIndex(agentSerialNumberBytes, 3);
+            byte[] serialNumberLengthBytes = toBytes(len);
+            System.arraycopy(serialNumberLengthBytes, 0, buffer, 2, 1);
+            System.arraycopy(agentSerialNumberBytes, 0, buffer, 2 + 1, len);
 
-            byte[] deviceSerialBytes = deviceSerial.getBytes(StandardCharsets.UTF_8);
-            len = StringUtils.getUtf8TruncationIndex(deviceSerialBytes, 16);
-            System.arraycopy(deviceSerialBytes, 0, buffer, 6 + 32, len);
+            byte[] manufactureBytes = manufacture.getBytes(StandardCharsets.US_ASCII);
+            len = StringUtils.getUtf8TruncationIndex(manufactureBytes, 4);
+            byte[] manufactureLengthBytes = toBytes(len);
+            System.arraycopy(manufactureLengthBytes, 0, buffer, 2 + 1 + 3, 1);
+            System.arraycopy(manufactureBytes, 0, buffer, 2 + 1 + 3 + 1, len);
 
-            IO.writeStreamFully(outputStream, buffer, 0, 6 + 32 + 16);
+            byte[] deviceModelBytes = deviceModel.getBytes(StandardCharsets.US_ASCII);
+            len = StringUtils.getUtf8TruncationIndex(deviceModelBytes, 3);
+            byte[] deviceModelLengthBytes = toBytes(len);
+            System.arraycopy(deviceModelLengthBytes, 0, buffer, 2 + 1 + 3 + 1 + 4, 1);
+            System.arraycopy(deviceModelBytes, 0, buffer, 2 + 1 + 3 + 1 + 4 + 1, len);
 
-            byte[] idBuffer = new byte[4];
-            int r = inputStream.read(idBuffer, 0, 4);
-            if (r == -1) {
-                throw new IOException("Connect socket closed");
-            }
-            Device.id = (idBuffer[0] << 24) + (idBuffer[1] << 16) + (idBuffer[2] << 8) + idBuffer[3];
-            Ln.d("Device.id:" + Device.id);
-
-            Message message = serviceHandler.obtainMessage();
-            message.obj = Device.id;
-            message.what = 1;
-            serviceHandler.sendMessage(message);
+            Log.d("buffer", Arrays.toString(buffer));
+            IO.writeStreamFully(outputStream, buffer, 0, 2 + 1 + 3 + 1 + 4 + 1 + 3);
 
             while (true) {
                 byte[] cmdBuffer = new byte[2];
@@ -296,21 +263,17 @@ public final class Server {
                 Ln.d("cmdBuffer[1]:" + cmdBuffer[1]);
 
                 if ((cmdBuffer[0] == 0x10) && (cmdBuffer[1] == 0x03)) {
-                    new Thread(new Runnable() {
-                        public void run() {
-                            try {
-                                startConnect(serviceContext, "2", "1500000", "false", "-", "true", "true");
-                            } catch (Exception e) {
-                                Ln.d("Could not start core Server:" + e.getMessage());
-                                e.printStackTrace();
-                            }
+                    new Thread(() -> {
+                        try {
+                            startConnect(serviceContext, buffer, "2", "1500000", "false", "-", "true", "true", agentPort, agentIp);
+                        } catch (Exception e) {
+                            Ln.d("Could not start core Server:" + e.getMessage());
+                            e.printStackTrace();
                         }
                     }).start();
                 }
-
             }
         } catch (IOException e) {
-            // this is expected on close
             Ln.d("start error!");
             e.printStackTrace();
             Message message = serviceHandler.obtainMessage();
@@ -319,5 +282,11 @@ public final class Server {
             serviceHandler.sendMessage(message);
             RemoteService.setIsStarted(false);
         }
+    }
+
+    private static byte[] toBytes(int number) {
+        byte[] bytes = new byte[1];
+        bytes[0] = (byte) number;
+        return bytes;
     }
 }

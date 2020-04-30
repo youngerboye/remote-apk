@@ -108,6 +108,7 @@ public class ScreenEncoder implements Device.RotationListener {
                     // must restart encoding with new size
                     break;
                 }
+                //当首次出现值大于0可以出来控制画面
                 if (outputBufferId >= 0) {
                     ByteBuffer codecBuffer = codec.getOutputBuffer(outputBufferId);
 

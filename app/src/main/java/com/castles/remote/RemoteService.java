@@ -12,6 +12,9 @@ import android.widget.Toast;
 import com.castles.remote.core.Server;
 import com.castles.remote.core.constants.AgentConstants;
 
+/**
+ * @author Jackson
+ */
 public class RemoteService extends Service {
     private static final String TAG = "RemoteService";
     private static boolean isStarted = false;
@@ -63,36 +66,36 @@ public class RemoteService extends Service {
         }
         //todo 从remote agent获取五个参数
         String agentIp = intent.getStringExtra(AgentConstants.AGENT_IP);
+        String finalAgentIp = agentIp == null || "".equals(agentIp) ? "192.168.60.18" : agentIp;
+
         String agentPort = intent.getStringExtra(AgentConstants.AGENT_PORT);
+        String finalAgentPort = agentPort == null || "".equals(agentPort) ? "31415" : agentPort;
+
         String agentSerialNumber = intent.getStringExtra(AgentConstants.AGENT_SERIAL_NUMBER);
+        String finalAgentSerialNumber = agentSerialNumber == null || "".equals(agentSerialNumber) ? "123" : agentSerialNumber;
+
         String manufacture = intent.getStringExtra(AgentConstants.MANUFACTURE);
+        String finalManufacture = manufacture == null || "".equals(manufacture) ? "4567" : manufacture;
+
         String deviceModel = intent.getStringExtra(AgentConstants.DEVICE_MODEL);
-        Log.d(TAG, "agentIp: " + agentIp);
-        Log.d(TAG, "agentPort: " + agentPort);
-        Log.d(TAG, "agentSerialNumber: " + agentSerialNumber);
-        Log.d(TAG, "manufacture: " + manufacture);
-        Log.d(TAG, "deviceModel: " + deviceModel);
+        String finalDeviceModel = deviceModel == null || "".equals(deviceModel) ? "789" : deviceModel;
+
+        Log.d(TAG, "finalAgentIp: " + finalAgentIp);
+        Log.d(TAG, "finalAgentPort: " + finalAgentPort);
+        Log.d(TAG, "finalAgentSerialNumber: " + finalAgentSerialNumber);
+        Log.d(TAG, "finalManufacture: " + finalManufacture);
+        Log.d(TAG, "finalDeviceModel: " + finalDeviceModel);
 
         isStarted = true;
         new Thread(() -> {
             try {
-                Server.start(RemoteService.this, handler,agentIp,agentPort,agentSerialNumber,manufacture,deviceModel);
+                Server.start(RemoteService.this, handler, finalAgentIp, finalAgentPort, finalAgentSerialNumber, finalManufacture, finalDeviceModel);
                 isStarted = false;
             } catch (Exception e) {
                 Log.d(TAG, "Could not start core Server:" + e.getMessage());
                 e.printStackTrace();
             }
         }).start();
-//        isStarted = true;
-//        new Thread(() -> {
-//            try {
-//                Server.start(RemoteService.this, handler);
-//                isStarted = false;
-//            } catch (Exception e) {
-//                Log.d(TAG, "Could not start core Server:" + e.getMessage());
-//                e.printStackTrace();
-//            }
-//        }).start();
         return super.onStartCommand(intent, flags, startId);
     }
 

@@ -20,7 +20,7 @@ android {
         sourceCompatibility = 1.8
         targetCompatibility = 1.8
     }
-
+    buildToolsVersion = '29.0.3'
 }
 
 dependencies {
@@ -32,3 +32,4 @@ dependencies {
     androidTestImplementation 'androidx.test:runner:1.2.0'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.2.0'
 }
+

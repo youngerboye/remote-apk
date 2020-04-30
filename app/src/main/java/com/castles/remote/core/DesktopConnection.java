@@ -1,6 +1,5 @@
 package com.castles.remote.core;
 
-import android.net.LocalServerSocket;
 import android.net.LocalSocket;
 import android.net.LocalSocketAddress;
 
@@ -10,7 +9,6 @@ import java.io.Closeable;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.InetAddress;
-import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -20,39 +18,26 @@ public final class DesktopConnection implements Closeable {
 
     private static final int DEVICE_NAME_FIELD_LENGTH = 64;
 
-    private static final String SOCKET_NAME = "CastleRemote";
-    private static final String SOCKET_HOST = "192.168.10.18";
-    private static final int SOCKET_PORT = 31415;
-
     private final Socket videoSocket;
-//    private final FileDescriptor videoFd;
-
     private final Socket controlSocket;
     private final InputStream controlInputStream;
     private final OutputStream controlOutputStream;
     private final OutputStream videoOutputStream;
-
     private final ControlMessageReader reader = new ControlMessageReader();
     private final DeviceMessageWriter writer = new DeviceMessageWriter();
 
-    private DesktopConnection(Socket videoSocket, Socket controlSocket) throws IOException {
+    private DesktopConnection(Socket videoSocket, Socket controlSocket, byte[] buffer) throws IOException {
         this.videoSocket = videoSocket;
         this.controlSocket = controlSocket;
         controlInputStream = controlSocket.getInputStream();
         controlOutputStream = controlSocket.getOutputStream();
         videoOutputStream = videoSocket.getOutputStream();
 
-        byte[] buffer = new byte[6];
         buffer[0] = 0;
         buffer[1] = 1;
-        buffer[2] = (byte)(Device.id>>24);
-        buffer[3] = (byte)(Device.id>>16);
-        buffer[4] = (byte)(Device.id>>8);
-        buffer[5] = (byte)Device.id;
-        IO.writeStreamFully(videoOutputStream, buffer, 0, 6);
+        IO.writeStreamFully(videoOutputStream, buffer, 0, 15);
         buffer[1] = 2;
-        IO.writeStreamFully(controlOutputStream, buffer, 0, 6);
-        //        videoFd = videoSocket.getFileDescriptor();
+        IO.writeStreamFully(controlOutputStream, buffer, 0, 15);
     }
 
     private static LocalSocket connect(String abstractName) throws IOException {
@@ -61,41 +46,37 @@ public final class DesktopConnection implements Closeable {
         return localSocket;
     }
 
-    private static Socket connect(String host, int port) throws IOException {
-        Socket socket = new Socket(host, port);
-        return socket;
+    public static Socket connect(String host, int port) throws IOException {
+        return new Socket(host, port);
     }
 
     /**
      * 4.根据tunnelForward参数进行发送端和接收端的服务进行连接
+     *
      * @param device
      * @param tunnelForward
      * @param host
      * @return
      * @throws IOException
      */
-    public static DesktopConnection open(Device device, boolean tunnelForward, String host) throws IOException {
+    public static DesktopConnection open(int port, Device device, boolean tunnelForward,String ip, String host, byte[] buffer) throws IOException {
         Socket videoSocket = null;
         Socket controlSocket = null;
         if (tunnelForward) {
-//            ServerSocket serverSocket = new ServerSocket();
-            ServerSocket serverSocket = new ServerSocket(SOCKET_PORT, 2, InetAddress.getByName(host));
-//            serverSocket.bind(new InetSocketAddress(host,SOCKET_PORT));
+            ServerSocket serverSocket = new ServerSocket(port, 2, InetAddress.getByName(ip));
             try {
                 //创建一个服务端的socket
                 videoSocket = serverSocket.accept();
-                
-                Ln.d("DesktopConnection open videoSocket:"+videoSocket);
+
+                Ln.d("DesktopConnection open videoSocket:" + videoSocket);
                 // send one byte so the client may read() to detect a connection error
-                if(videoSocket != null)
-                {
+                if (videoSocket != null) {
                     videoSocket.getOutputStream().write(0);
                 }
                 try {
                     controlSocket = serverSocket.accept();
                 } catch (IOException | RuntimeException e) {
-                    if(videoSocket != null)
-                    {
+                    if (videoSocket != null) {
                         videoSocket.close();
                     }
                     throw e;
@@ -104,26 +85,26 @@ public final class DesktopConnection implements Closeable {
                 serverSocket.close();
             }
         } else {
-            videoSocket = connect(SOCKET_HOST, SOCKET_PORT);
+            videoSocket = connect(host, port);
             try {
-                controlSocket = connect(SOCKET_HOST, SOCKET_PORT);
+                controlSocket = connect(host, port);
             } catch (IOException | RuntimeException e) {
                 videoSocket.close();
                 throw e;
             }
         }
 
-        DesktopConnection connection = new DesktopConnection(videoSocket, controlSocket);
+        DesktopConnection connection = new DesktopConnection(videoSocket, controlSocket, buffer);
         Size videoSize = device.getScreenInfo().getVideoSize();
-        Ln.d("DesktopConnection send DeviceName:"+Device.getDeviceName());
-        Ln.d("DesktopConnection send videoWidth:"+videoSize.getWidth());
-        Ln.d("DesktopConnection send videoHeight:"+videoSize.getHeight());
+        Ln.d("DesktopConnection send DeviceName:" + Device.getDeviceName());
+        Ln.d("DesktopConnection send videoWidth:" + videoSize.getWidth());
+        Ln.d("DesktopConnection send videoHeight:" + videoSize.getHeight());
         connection.send(Device.getDeviceName(), videoSize.getWidth(), videoSize.getHeight());
         return connection;
     }
 
     @Override
-    public void close() throws IOException {
+    public void close() {
         try {
             videoSocket.shutdownInput();
             videoSocket.shutdownOutput();
@@ -154,10 +135,6 @@ public final class DesktopConnection implements Closeable {
         IO.writeStreamFully(videoOutputStream, buffer, 0, buffer.length);
     }
 
-//    public FileDescriptor getVideoFd() {
-//        return videoFd;
-//    }
-
     public OutputStream getVideoOutputStream() {
         return videoOutputStream;
     }
@@ -173,9 +150,5 @@ public final class DesktopConnection implements Closeable {
 
     public void sendDeviceMessage(DeviceMessage msg) throws IOException {
         writer.writeTo(msg, controlOutputStream);
-    }
-
-    public static Socket connectServer() throws IOException {
-        return connect(SOCKET_HOST, SOCKET_PORT);
     }
 }
